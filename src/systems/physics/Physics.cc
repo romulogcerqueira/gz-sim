@@ -3955,13 +3955,15 @@ void PhysicsPrivate::UpdateDummyPoint(EntityComponentManager &_ecm)
     return;
   }
 
-  auto dummyPoint = dummyPointFeature->GetDummyPointFromLastStep();
+  Eigen::Vector3d from (1,2,3);
+
+  auto dummyPoint = dummyPointFeature->GetDummyPointFromLastStep(gz::math::eigen3::convert(from), gz::math::Vector3d());
   const auto convertedDummyPoint = dummyPoint.Get<DummyShapeType::DummyPoint>();
 
   gzwarn << "===== dummyPoint: "
-    << convertedDummyPoint.point.x() << ","
-    << convertedDummyPoint.point.y() << ","
-    << convertedDummyPoint.point.z() << std::endl;
+    << convertedDummyPoint.point.X() << ","
+    << convertedDummyPoint.point.Y() << ","
+    << convertedDummyPoint.point.Z() << std::endl;
 
   // for (const auto &contactComposite : allContacts)
   // {
