@@ -60,6 +60,7 @@
 #include <gz/physics/FreeGroup.hh>
 #include <gz/physics/FixedJoint.hh>
 #include <gz/physics/GetContacts.hh>
+#include <gz/physics/GetDummyPoint.hh>
 #include <gz/physics/GetBoundingBox.hh>
 #include <gz/physics/GetEntities.hh>
 #include <gz/physics/Joint.hh>
@@ -310,6 +311,8 @@ class gz::sim::systems::PhysicsPrivate
   /// \param[in] _ecm Mutable reference to ECM.
   public: void UpdateCollisions(EntityComponentManager &_ecm);
 
+  public: void UpdateDummyPoint(EntityComponentManager &_ecm);
+
   /// \brief FrameData relative to world at a given offset pose
   /// \param[in] _link gz-physics link
   /// \param[in] _pose Offset pose in which to compute the frame data
@@ -502,6 +505,10 @@ class gz::sim::systems::PhysicsPrivate
   //////////////////////////////////////////////////
   // Collisions
 
+  /// \brief Feature list to handle dummy point information.
+  public: struct DummyPointFeatureList : physics::FeatureList<
+            physics::GetDummyPointFromLastStepFeature>{};
+
   /// \brief Feature list to handle collisions.
   public: struct CollisionFeatureList : physics::FeatureList<
             MinimumFeatureList,
@@ -525,6 +532,9 @@ class gz::sim::systems::PhysicsPrivate
   /// \brief World type with just the minimum features. Non-pointer.
   public: using WorldShapeType = physics::World<
             physics::FeaturePolicy3d, ContactFeatureList>;
+
+  public: using DummyShapeType = physics::World<
+            physics::FeaturePolicy3d, DummyPointFeatureList>;
 
   //////////////////////////////////////////////////
   // Collision filtering with bitmasks
@@ -642,6 +652,7 @@ class gz::sim::systems::PhysicsPrivate
           MinimumFeatureList,
           CollisionFeatureList,
           ContactFeatureList,
+          DummyPointFeatureList,
           SetContactPropertiesCallbackFeatureList,
           NestedModelFeatureList,
           CollisionDetectorFeatureList,
@@ -704,6 +715,7 @@ class gz::sim::systems::PhysicsPrivate
             CollisionFeatureList,
             ContactFeatureList,
             CollisionMaskFeatureList,
+            DummyPointFeatureList,
             FrictionPyramidSlipComplianceFeatureList
             >;
 
@@ -3736,6 +3748,8 @@ void PhysicsPrivate::UpdateSim(EntityComponentManager &_ecm,
 
   // TODO(louise) Skip this if there are no collision features
   this->UpdateCollisions(_ecm);
+
+  this->UpdateDummyPoint(_ecm);
 }  // NOLINT readability/fn_size
 // TODO (azeey) Reduce size of function and remove the NOLINT above
 
@@ -3905,6 +3919,148 @@ void PhysicsPrivate::UpdateCollisions(EntityComponentManager &_ecm)
       });
 }
 
+
+void PhysicsPrivate::UpdateDummyPoint(EntityComponentManager &_ecm)
+{
+  GZ_PROFILE("PhysicsPrivate::UpdateDummyPoint");
+
+  Entity worldEntity = _ecm.EntityByComponents(components::World());
+
+  if (worldEntity == kNullEntity)
+  {
+    gzerr << "Missing world entity.\n";
+    return;
+  }
+
+  if (!this->entityWorldMap.HasEntity(worldEntity))
+  {
+    gzwarn << "Failed to find world [" << worldEntity << "]." << std::endl;
+    return;
+  }
+
+  auto dummyPointFeature =
+      this->entityWorldMap.EntityCast<DummyPointFeatureList>(worldEntity);
+
+  if (!dummyPointFeature)
+  {
+    static bool informed{false};
+    if (!informed)
+    {
+      gzwarn << "Attempting to get dummy point, but the "
+             << "physics engine doesn't support dummy point feature. "
+             << "Dummy point won't be computed."
+             << std::endl;
+      informed = true;
+    }
+    return;
+  }
+
+  auto dummyPoint = dummyPointFeature->GetDummyPointFromLastStep();
+  const auto convertedDummyPoint = dummyPoint.Get<DummyShapeType::DummyPoint>();
+
+  gzwarn << "===== dummyPoint: "
+    << convertedDummyPoint.point.x() << ","
+    << convertedDummyPoint.point.y() << ","
+    << convertedDummyPoint.point.z() << std::endl;
+
+  // for (const auto &contactComposite : allContacts)
+  // {
+  //   const auto &contactPoint =
+  //       contactComposite.Get<WorldShapeType::ContactPoint>();
+  //   const auto &extraContactData = contactComposite.Query<ExtraContactData>();
+  //   auto coll1Entity = this->entityCollisionMap.GetByPhysicsId(
+  //       contactPoint.collision1->EntityID());
+  //   auto coll2Entity = this->entityCollisionMap.GetByPhysicsId(
+  //       contactPoint.collision2->EntityID());
+
+  //   if (coll1Entity != kNullEntity && coll2Entity != kNullEntity)
+  //   {
+  //     ContactData data = std::make_pair(&contactPoint, extraContactData);
+  //     entityContactMap[coll1Entity][coll2Entity].push_back(data);
+  //     entityContactMap[coll2Entity][coll1Entity].push_back(data);
+  //   }
+  // }
+
+  // // Go through each collision entity that has a ContactData component and
+  // // set the component value to the list of contacts that correspond to
+  // // the collision entity
+  // _ecm.Each<components::Collision, components::ContactSensorData>(
+  //     [&](const Entity &_collEntity1, components::Collision *,
+  //         components::ContactSensorData *_contacts) -> bool
+  //     {
+  //       msgs::Contacts contactsComp;
+  //       if (entityContactMap.find(_collEntity1) == entityContactMap.end())
+  //       {
+  //         // Clear the last contact data
+  //         auto state = _contacts->SetData(contactsComp,
+  //           this->contactsEql) ?
+  //           ComponentState::PeriodicChange :
+  //           ComponentState::NoChange;
+  //         _ecm.SetChanged(
+  //           _collEntity1, components::ContactSensorData::typeId, state);
+  //         return true;
+  //       }
+
+  //       const auto &contactMap = entityContactMap[_collEntity1];
+
+  //       for (const auto &[collEntity2, contactData] : contactMap)
+  //       {
+  //         msgs::Contact *contactMsg = contactsComp.add_contact();
+  //         contactMsg->mutable_collision1()->set_id(_collEntity1);
+  //         contactMsg->mutable_collision2()->set_id(collEntity2);
+  //         if (this->contactsEntityNames)
+  //         {
+  //           contactMsg->mutable_collision1()->set_name(
+  //             removeParentScope(scopedName(_collEntity1, _ecm, "::", 0), "::"));
+  //           contactMsg->mutable_collision2()->set_name(
+  //             removeParentScope(scopedName(collEntity2, _ecm, "::", 0), "::"));
+  //         }
+  //         for (const auto &contact : contactData)
+  //         {
+  //           auto *position = contactMsg->add_position();
+  //           position->set_x(contact.first->point.x());
+  //           position->set_y(contact.first->point.y());
+  //           position->set_z(contact.first->point.z());
+
+  //           // Check if the extra contact data exists,
+  //           // since not all physics engines support it.
+  //           // Then, fill the msg with extra data.
+  //           if(contact.second != nullptr)
+  //           {
+  //             auto *normal = contactMsg->add_normal();
+  //             normal->set_x(contact.second->normal.x());
+  //             normal->set_y(contact.second->normal.y());
+  //             normal->set_z(contact.second->normal.z());
+
+  //             auto *wrench = contactMsg->add_wrench();
+  //             auto *body1Wrench = wrench->mutable_body_1_wrench();
+  //             auto *body1Force = body1Wrench->mutable_force();
+  //             body1Force->set_x(contact.second->force.x());
+  //             body1Force->set_y(contact.second->force.y());
+  //             body1Force->set_z(contact.second->force.z());
+
+  //             // The force on the second body is equal and opposite
+  //             auto *body2Wrench = wrench->mutable_body_2_wrench();
+  //             auto *body2Force = body2Wrench->mutable_force();
+  //             body2Force->set_x(-contact.second->force.x());
+  //             body2Force->set_y(-contact.second->force.y());
+  //             body2Force->set_z(-contact.second->force.z());
+
+  //             contactMsg->add_depth(contact.second->depth);
+  //           }
+  //         }
+  //       }
+
+  //       auto state = _contacts->SetData(contactsComp,
+  //         this->contactsEql) ?
+  //         ComponentState::PeriodicChange :
+  //         ComponentState::NoChange;
+  //       _ecm.SetChanged(
+  //         _collEntity1, components::ContactSensorData::typeId, state);
+
+  //       return true;
+  //     });
+}
 //////////////////////////////////////////////////
 physics::FrameData3d PhysicsPrivate::LinkFrameDataAtOffset(
       const LinkPtrType &_link, const math::Pose3d &_pose) const
