@@ -1,9 +1,13 @@
 <?xml version="1.0" ?>
 <sdf version="1.6">
   <world name="default">
+    <gravity>0 0 0</gravity>
     <physics name="1ms" type="ode">
       <max_step_size>0.001</max_step_size>
       <real_time_factor>0</real_time_factor>
+      <dart>
+        <collision_detector>bullet</collision_detector>
+      </dart>
     </physics>
 
     <gui fullscreen="0">
@@ -40,7 +44,7 @@
     </light>
 
     <model name="box">
-      <pose>1 2 3 0 0 1</pose>
+      <pose>0 0 1 0 0 0</pose>
       <link name="box_link">
         <inertial>
           <inertia>
@@ -53,12 +57,12 @@
           </inertia>
           <mass>1.0</mass>
         </inertial>
-        <pose>0.1 0.1 0.1 0 0 0</pose>
+        <!-- <pose>0.1 0.1 0.1 0 0 0</pose> -->
         <collision name="box_collision">
-          <pose>0.11 0.11 0.11 0 0 0</pose>
+          <!-- <pose>0.11 0.11 0.11 0 0 0</pose> -->
           <geometry>
             <box>
-              <size>3 4 5</size>
+              <size>100 100 0.001</size>
             </box>
           </geometry>
         </collision>
@@ -80,7 +84,7 @@
       </link>
     </model>
 
-    <model name="cylinder">
+    <!-- <model name="cylinder">
       <pose>-1 -2 -3 0 0 1</pose>
       <link name="cylinder_link">
         <pose>0.2 0.2 0.2 0 0 0</pose>
@@ -248,7 +252,7 @@
           </material>
         </visual>
       </link>
-    </model>
+    </model> -->
 
   </world>
 </sdf>
